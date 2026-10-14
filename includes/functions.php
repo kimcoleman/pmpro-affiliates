@@ -270,7 +270,7 @@ function pmpro_affiliates_display_orders_table( $args = array() ) {
 						</td>
 					<?php endif; ?>
 					<?php if ( $args['show_date'] ) : ?>
-						<td><?php echo esc_html( wp_date( get_option( 'date_format' ), $order->timestamp ) ); ?></td>
+						<td><?php echo esc_html( empty( $order->timestamp ) ? '' : wp_date( get_option( 'date_format' ), $order->timestamp ) ); ?></td>
 					<?php endif; ?>
 					<?php if ( $args['show_commission_pct'] ) : ?>
 						<td><?php echo esc_html( $order->commissionrate * 100 ); ?>%</td>

@@ -102,7 +102,7 @@ if ( $report !== 'all' ) {
 				pmpro_enclose( (int) $order->user_id ),
 				pmpro_enclose( $order->user_login ),
 				pmpro_enclose( $order->name ),
-				pmpro_enclose( wp_date( 'Y-m-d', $order->timestamp ) ),
+				pmpro_enclose( empty( $order->timestamp ) ? '' : wp_date( 'Y-m-d', $order->timestamp ) ),
 				pmpro_enclose( $order->commissionrate * 100 ) . '%',
 				pmpro_enclose( number_format( $order->total * $order->commissionrate, 2 ) ),
 				pmpro_enclose( $order->total ),

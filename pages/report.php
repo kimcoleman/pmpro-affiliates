@@ -266,7 +266,7 @@ function pmpro_affiliates_report_shortcode( $atts, $content = null, $code = '' )
 												</td>
 											<?php } ?>
 											<?php if ( in_array( 'date', $fields ) ) { ?>
-												<td data-title="<?php esc_html_e( 'Date', 'pmpro-affiliates' ); ?>"><?php echo esc_html( wp_date( get_option( 'date_format' ), $order->timestamp ) ); ?></td>
+												<td data-title="<?php esc_html_e( 'Date', 'pmpro-affiliates' ); ?>"><?php echo esc_html( empty( $order->timestamp ) ? '' : wp_date( get_option( 'date_format' ), $order->timestamp ) ); ?></td>
 											<?php } ?>
 											<?php if ( in_array( 'membership_level', $fields ) ) { ?>
 												<td data-title="<?php esc_html_e( 'Level', 'pmpro-affiliates' ); ?>">
