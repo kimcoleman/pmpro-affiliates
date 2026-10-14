@@ -98,11 +98,9 @@ if ( ! defined( 'ABSPATH' ) ) {
 	}
 
 	if ( $payout_id && $payout ) {
-		$date_format = get_option( 'date_format' );
 		printf(
-			'<p>' . esc_html__( 'Date Range: %1$s &ndash; %2$s', 'pmpro-affiliates' ) . '</p>',
-			esc_html( date_i18n( $date_format, strtotime( $payout->date_start ) ) ),
-			esc_html( date_i18n( $date_format, strtotime( $payout->date_end ) ) )
+			'<p>' . esc_html__( 'Date Range: %s', 'pmpro-affiliates' ) . '</p>',
+			esc_html( pmpro_affiliates_format_payout_date_range( $payout ) )
 		);
 	}
 

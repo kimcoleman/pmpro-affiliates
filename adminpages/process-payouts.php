@@ -1,7 +1,8 @@
 <?php
 /**
  * Process Payouts admin page (two-step form).
- * Included by payouts.php when action=process|preview|confirm.
+ * Included by payouts.php when action=process|preview.
+ * The confirm step is handled by pmpro_affiliates_process_payouts_confirm() on admin_init.
  */
 
 // Permissions check.
@@ -10,75 +11,6 @@ if ( ! current_user_can( 'manage_options' ) ) {
 }
 
 $action = isset( $_REQUEST['action'] ) ? sanitize_text_field( $_REQUEST['action'] ) : 'process';
-
-// -------------------------------------------------------------------------
-// Step 3: Confirm — create payout records then redirect.
-// -------------------------------------------------------------------------
-if ( 'confirm' === $action ) {
-	check_admin_referer( 'pmpro_affiliates_process_payouts' );
-
-	$date_start      = sanitize_text_field( $_POST['date_start'] ?? '' );
-	$date_end        = sanitize_text_field( $_POST['date_end'] ?? '' );
-	$affiliate_id    = (int) ( $_POST['affiliate_id'] ?? 0 );
-	$minimum         = max( 0, (float) ( $_POST['minimum'] ?? 0 ) );
-	$method_override = sanitize_text_field( $_POST['method_override'] ?? '' );
-
-	$commissions = pmpro_affiliates_get_unpaid_commissions_for_payout( $affiliate_id, $date_start, $date_end, $minimum );
-
-	if ( empty( $commissions ) ) {
-		wp_redirect( add_query_arg( array(
-			'page'  => 'pmpro-affiliates-payouts',
-			'error' => '1',
-		), admin_url( 'admin.php' ) ) );
-		exit;
-	}
-
-	$payout_ids      = array();
-	$total_amount    = 0.0;
-	$affiliate_count = 0;
-
-	$method_labels = array(
-		'paypal' => __( 'PayPal', 'pmpro-affiliates' ),
-		'venmo'  => __( 'Venmo', 'pmpro-affiliates' ),
-		'check'  => __( 'Check', 'pmpro-affiliates' ),
-		'wire'   => __( 'Wire', 'pmpro-affiliates' ),
-		'other'  => __( 'Other', 'pmpro-affiliates' ),
-	);
-
-	foreach ( $commissions as $aid => $data ) {
-		$aff    = $data['affiliate'];
-		$method = ! empty( $method_override ) ? $method_override : $aff->payout_method;
-		$account = $aff->payout_email;
-
-		$payout_id = pmpro_affiliates_create_payout(
-			$aff->id,
-			$data['order_ids'],
-			$data['amount'],
-			$method,
-			$account,
-			$date_start,
-			$date_end
-		);
-
-		if ( ! is_wp_error( $payout_id ) ) {
-			$payout_ids[]  = $payout_id;
-			$total_amount += $data['amount'];
-			$affiliate_count++;
-		}
-	}
-
-	// Store recent payout IDs for CSV download on the success page.
-	$transient_key = 'pmpro_affiliates_recent_payouts_' . get_current_user_id();
-	set_transient( $transient_key, $payout_ids, HOUR_IN_SECONDS );
-
-	wp_redirect( add_query_arg( array(
-		'page'            => 'pmpro-affiliates-payouts',
-		'success'         => '1',
-		'affiliate_count' => $affiliate_count,
-		'total_amount'    => number_format( $total_amount, 2, '.', '' ),
-	), admin_url( 'admin.php' ) ) );
-	exit;
-}
 
 // -------------------------------------------------------------------------
 // Settings for nav.
@@ -151,9 +83,11 @@ if ( 'preview' === $action ) :
 		'wire'   => __( 'Wire', 'pmpro-affiliates' ),
 		'other'  => __( 'Other', 'pmpro-affiliates' ),
 	);
-	$preview_total  = 0.0;
+	$preview_total     = 0.0;
+	$preview_order_ids = array();
 	foreach ( $preview_data as $d ) {
-		$preview_total += $d['amount'];
+		$preview_total    += $d['amount'];
+		$preview_order_ids = array_merge( $preview_order_ids, $d['order_ids'] );
 	}
 ?>
 
@@ -220,6 +154,7 @@ printf(
 	<input type="hidden" name="affiliate_id" value="<?php echo (int) $affiliate_id; ?>" />
 	<input type="hidden" name="minimum" value="<?php echo esc_attr( $minimum ); ?>" />
 	<input type="hidden" name="method_override" value="<?php echo esc_attr( $method_override ); ?>" />
+	<input type="hidden" name="order_ids" value="<?php echo esc_attr( implode( ',', $preview_order_ids ) ); ?>" />
 	<p class="submit topborder">
 		<a href="<?php echo esc_url( admin_url( 'admin.php?page=pmpro-affiliates-payouts&action=process' ) ); ?>" class="button"><?php esc_html_e( '&larr; Back', 'pmpro-affiliates' ); ?></a>
 		<input type="submit" class="button button-primary" value="<?php esc_attr_e( 'Confirm Payouts', 'pmpro-affiliates' ); ?>" />

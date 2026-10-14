@@ -12,7 +12,7 @@ if ( ! current_user_can( 'manage_options' ) ) {
 $action = isset( $_REQUEST['action'] ) ? sanitize_text_field( $_REQUEST['action'] ) : '';
 
 // Dispatch to process-payouts flow.
-if ( in_array( $action, array( 'process', 'preview', 'confirm' ), true ) ) {
+if ( in_array( $action, array( 'process', 'preview' ), true ) ) {
 	require_once dirname( __FILE__ ) . '/process-payouts.php';
 	return;
 }
@@ -59,6 +59,12 @@ if ( ! empty( $_REQUEST['success'] ) ) {
 		pmpro_formatPrice( $total_amount )
 	);
 	$pmpro_msgt = 'success';
+}
+
+// Check for empty-run redirect from process-payouts.
+if ( ! empty( $_REQUEST['error'] ) ) {
+	$pmpro_msg  = __( 'No unpaid commissions found for the selected criteria. No payouts were created.', 'pmpro-affiliates' );
+	$pmpro_msgt = 'error';
 }
 
 // Retrieve recent payout IDs from transient (set by process-payouts.php on confirm).
@@ -208,9 +214,7 @@ require_once PMPRO_DIR . '/adminpages/admin_header.php';
 					), admin_url( 'admin.php' ) ),
 					'pmpro_affiliates_delete_payout_' . $payout->id
 				);
-				$date_range = date_i18n( get_option( 'date_format' ), strtotime( $payout->date_start ) )
-					. ' &ndash; '
-					. date_i18n( get_option( 'date_format' ), strtotime( $payout->date_end ) );
+				$date_range = pmpro_affiliates_format_payout_date_range( $payout );
 			?>
 			<tr id="payout-row-<?php echo (int) $payout->id; ?>">
 				<th class="check-column">

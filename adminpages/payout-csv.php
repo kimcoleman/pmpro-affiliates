@@ -49,8 +49,8 @@ $all_starts = wp_list_pluck( $payouts, 'date_start' );
 $all_ends   = wp_list_pluck( $payouts, 'date_end' );
 sort( $all_starts );
 sort( $all_ends );
-$range_start = str_replace( ' ', '-', preg_replace( '/[^0-9-]/', '', $all_starts[0] ) );
-$range_end   = str_replace( ' ', '-', preg_replace( '/[^0-9-]/', '', end( $all_ends ) ) );
+$range_start = substr( $all_starts[0], 0, 10 );
+$range_end   = substr( end( $all_ends ), 0, 10 );
 
 if ( 'paypal' === $format ) {
 	$filename = 'affiliate-payouts-paypal-' . date( 'Y-m-d' ) . '.csv';

@@ -31,7 +31,7 @@ function pmpro_affiliates_get_orders( $affiliate_id = 'all', $args = array() ) {
 	$args = wp_parse_args( $args, $defaults );
 
 	$sql_query =
-		"SELECT o.id as order_id, o.code as order_code, a.id as affiliate_id, a.code, a.commissionrate, o.affiliate_subid as subid, a.name, u.ID as user_id, u.user_login, o.membership_id, UNIX_TIMESTAMP(o.timestamp) as timestamp, " . esc_sql( 'o.' . pmpro_affiliates_get_commission_calculation_source() ) . " as total, o.status, om.meta_value as affiliate_paid
+		"SELECT o.id as order_id, o.code as order_code, a.id as affiliate_id, a.code, a.commissionrate, o.affiliate_subid as subid, a.name, u.ID as user_id, u.user_login, o.membership_id, UNIX_TIMESTAMP(o.timestamp) as timestamp, " . esc_sql( 'o.' . pmpro_affiliates_get_commission_calculation_source() ) . " as total, o.status, om.meta_value as affiliate_paid, pm.meta_value as affiliate_payout_id
 		FROM $wpdb->pmpro_membership_orders o
 		LEFT JOIN $wpdb->pmpro_affiliates a
 		ON o.affiliate_id = a.id
@@ -40,6 +40,9 @@ function pmpro_affiliates_get_orders( $affiliate_id = 'all', $args = array() ) {
 		LEFT JOIN $wpdb->pmpro_membership_ordermeta om
 		ON o.id = om.pmpro_membership_order_id
 		AND om.meta_key = 'pmpro_affiliate_paid'
+		LEFT JOIN $wpdb->pmpro_membership_ordermeta pm
+		ON o.id = pm.pmpro_membership_order_id
+		AND pm.meta_key = 'pmpro_affiliate_payout_id'
 		WHERE o.affiliate_id <> ''
 		AND o.affiliate_id IS NOT NULL
 		AND o.affiliate_id <> 0
@@ -228,7 +231,14 @@ function pmpro_affiliates_display_orders_table( $args = array() ) {
 				$level = pmpro_getLevel( $order->membership_id );
 				$affiliate_paid = $order->affiliate_paid;
 				
-				if ( $affiliate_paid === '1' ) {
+				if ( ! empty( $order->affiliate_payout_id ) ) {
+					// Orders in a payout are reversed by deleting the payout, not individually.
+					$affiliate_paid = sprintf(
+						/* translators: %s: link to the payout */
+						esc_html__( 'Paid (%s)', 'pmpro-affiliates' ),
+						'<a href="' . esc_url( admin_url( 'admin.php?page=pmpro-affiliates&report=' . (int) $order->affiliate_id . '&payout_id=' . (int) $order->affiliate_payout_id ) ) . '">' . esc_html( sprintf( __( 'Payout #%d', 'pmpro-affiliates' ), (int) $order->affiliate_payout_id ) ) . '</a>'
+					);
+				} elseif ( $affiliate_paid === '1' ) {
 					$nonce = wp_create_nonce( 'pmpro_affiliates_reset_paid_status' );
 					$affiliate_paid = esc_html__( 'Paid', 'pmpro-affiliates' );
 					$affiliate_paid .= ' [<a class="pmpro_affiliates_reset_paid_status" href="javascript:void(0)" order_id="' . esc_attr( $order->order_id ) . '" _wpnonce="' . esc_attr( $nonce ) . '" title="' . esc_html__( 'Reset Payment Status', 'pmpro-affiliates' ) . '" >x</a>]';
@@ -323,15 +333,16 @@ function pmpro_affiliates_display_orders_table( $args = array() ) {
 /**
  * Get all unpaid commissions grouped by affiliate, optionally filtered by affiliate and date range.
  *
- * @since 0.9
+ * @since TBD
  *
  * @param int    $affiliate_id The affiliate ID, or 0 for all affiliates.
  * @param string $date_start   Start date string (YYYY-MM-DD), or empty for no limit.
  * @param string $date_end     End date string (YYYY-MM-DD), or empty for no limit.
  * @param float  $minimum      Minimum commission amount to include. Default 0.
- * @return array Keyed by affiliate_id => [ 'affiliate' => obj, 'order_ids' => [], 'amount' => float ]
+ * @param array  $order_ids    Limit to these order IDs (e.g. the set shown in a preview). Default empty (no limit).
+ * @return array Keyed by affiliate_id => [ 'affiliate' => obj, 'order_ids' => [], 'amount' => float, 'date_first' => string, 'date_last' => string ] Order dates are GMT.
  */
-function pmpro_affiliates_get_unpaid_commissions_for_payout( $affiliate_id = 0, $date_start = '', $date_end = '', $minimum = 0.00 ) {
+function pmpro_affiliates_get_unpaid_commissions_for_payout( $affiliate_id = 0, $date_start = '', $date_end = '', $minimum = 0.00, $order_ids = array() ) {
 	global $wpdb;
 
 	$commission_source = pmpro_affiliates_get_commission_calculation_source();
@@ -344,6 +355,7 @@ function pmpro_affiliates_get_unpaid_commissions_for_payout( $affiliate_id = 0, 
 				a.payout_email,
 				a.payout_method,
 				o.id            AS order_id,
+				o.timestamp     AS order_date,
 				o.{$commission_source} AS order_total
 			FROM {$wpdb->pmpro_membership_orders} o
 			JOIN {$wpdb->pmpro_affiliates} a
@@ -351,21 +363,31 @@ function pmpro_affiliates_get_unpaid_commissions_for_payout( $affiliate_id = 0, 
 			LEFT JOIN {$wpdb->pmpro_membership_ordermeta} om
 				ON o.id = om.pmpro_membership_order_id
 				AND om.meta_key = 'pmpro_affiliate_paid'
+			LEFT JOIN {$wpdb->pmpro_membership_ordermeta} pm
+				ON o.id = pm.pmpro_membership_order_id
+				AND pm.meta_key = 'pmpro_affiliate_payout_id'
 			WHERE o.affiliate_id > 0
 			AND o.status NOT IN ('pending', 'error', 'refunded', 'refund', 'token', 'review')
 			AND om.meta_value IS NULL
+			AND pm.meta_value IS NULL
 			AND a.enabled = 1";
 
 	if ( $affiliate_id > 0 ) {
 		$sql .= $wpdb->prepare( ' AND a.id = %d', (int) $affiliate_id );
 	}
 
+	if ( ! empty( $order_ids ) ) {
+		$clean_ids = implode( ',', array_map( 'intval', $order_ids ) );
+		$sql      .= " AND o.id IN ($clean_ids)";
+	}
+
+	// Order timestamps are stored in GMT; entered dates are in the site's timezone.
 	if ( ! empty( $date_start ) ) {
-		$sql .= $wpdb->prepare( ' AND o.timestamp >= %s', $date_start . ' 00:00:00' );
+		$sql .= $wpdb->prepare( ' AND o.timestamp >= %s', get_gmt_from_date( $date_start . ' 00:00:00' ) );
 	}
 
 	if ( ! empty( $date_end ) ) {
-		$sql .= $wpdb->prepare( ' AND o.timestamp <= %s', $date_end . ' 23:59:59' );
+		$sql .= $wpdb->prepare( ' AND o.timestamp <= %s', get_gmt_from_date( $date_end . ' 23:59:59' ) );
 	}
 
 	$sql .= ' ORDER BY a.id, o.timestamp';
@@ -390,11 +412,14 @@ function pmpro_affiliates_get_unpaid_commissions_for_payout( $affiliate_id = 0, 
 					'payout_email'   => $row->payout_email,
 					'payout_method'  => $row->payout_method,
 				),
-				'order_ids' => array(),
-				'amount'    => 0.0,
+				'order_ids'  => array(),
+				'amount'     => 0.0,
+				'date_first' => $row->order_date,
+				'date_last'  => $row->order_date,
 			);
 		}
 		$result[ $aid ]['order_ids'][] = (int) $row->order_id;
+		$result[ $aid ]['date_last']   = $row->order_date;
 		$result[ $aid ]['amount']      = round(
 			$result[ $aid ]['amount'] + ( (float) $row->order_total * (float) $row->commissionrate ),
 			2
@@ -416,7 +441,7 @@ function pmpro_affiliates_get_unpaid_commissions_for_payout( $affiliate_id = 0, 
 /**
  * Create a payout record and mark all included orders as paid.
  *
- * @since 0.9
+ * @since TBD
  *
  * @param int    $affiliate_id   The affiliate ID.
  * @param array  $order_ids      Array of order IDs included in this payout.
@@ -474,7 +499,7 @@ function pmpro_affiliates_create_payout( $affiliate_id, $order_ids, $amount, $pa
 /**
  * Get a single payout record by ID.
  *
- * @since 0.9
+ * @since TBD
  *
  * @param int $payout_id The payout ID.
  * @return object|null Payout record or null if not found.
@@ -494,7 +519,7 @@ function pmpro_affiliates_get_payout( $payout_id ) {
 /**
  * Get payout records, with optional filters.
  *
- * @since 0.9
+ * @since TBD
  *
  * @param array $args {
  *     Optional. Query arguments.
@@ -576,9 +601,30 @@ function pmpro_affiliates_get_payouts( $args = array() ) {
 }
 
 /**
+ * Format a payout's date range for display.
+ *
+ * @since TBD
+ *
+ * @param object $payout The payout record.
+ * @return string The formatted date range, or an em dash if no range was stored.
+ */
+function pmpro_affiliates_format_payout_date_range( $payout ) {
+	$dates = array();
+	foreach ( array( $payout->date_start, $payout->date_end ) as $date ) {
+		// Payouts created before date ranges were required stored zero dates.
+		if ( empty( $date ) || 0 === strpos( $date, '0000-00-00' ) ) {
+			return '&#8212;';
+		}
+		$dates[] = date_i18n( get_option( 'date_format' ), strtotime( $date ) );
+	}
+
+	return implode( ' &ndash; ', $dates );
+}
+
+/**
  * Delete a payout record and unmark all its orders as paid (reversal).
  *
- * @since 0.9
+ * @since TBD
  *
  * @param int $payout_id The payout ID.
  * @return bool True on success, false on failure.
