@@ -57,3 +57,18 @@ p.pmpro-affiliates-stat-value {
 		grid-template-columns: 1fr;
 	}
 }
+
+/* Payouts admin page */
+.pmpro-affiliates-no-payout-email {
+	color: #d63638;
+	font-style: italic;
+}
+
+.pmpro-affiliates-payout-orders td {
+	font-size: 13px;
+}
+
+/* Process payouts preview: warning for missing payout account */
+.pmpro-affiliates-no-payout-email {
+	color: #d63638;
+}

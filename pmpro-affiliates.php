@@ -58,7 +58,8 @@ add_action( 'admin_enqueue_scripts', 'pmpro_affiliates_admin_enqueue_styles' );
 // setup options
 function pmpro_affiliates_set_wpdb() {
 	global $wpdb, $table_prefix;
-	$wpdb->pmpro_affiliates = $table_prefix . 'pmpro_affiliates';
+	$wpdb->pmpro_affiliates         = $table_prefix . 'pmpro_affiliates';
+	$wpdb->pmpro_affiliate_payouts  = $table_prefix . 'pmpro_affiliate_payouts';
 }
 add_action( 'init', 'pmpro_affiliates_set_wpdb', 5 );
 
@@ -159,6 +160,15 @@ function pmpro_affiliates_checkDB() {
 		// update the db version
 		require_once dirname( __FILE__ ) . '/includes/updates/upgrade_0_6.php';
 		pmpro_affiliates_upgrade_0_6();
+	}
+
+	// Re-read db_version in case an earlier upgrade just ran.
+	$pmpro_affiliates_options = pmpro_affiliates_get_options();
+	$db_version               = $pmpro_affiliates_options['db_version'];
+
+	if ( $db_version >= 0.6 && $db_version < 0.9 ) {
+		require_once dirname( __FILE__ ) . '/includes/updates/upgrade_0_9.php';
+		pmpro_affiliates_upgrade_0_9();
 	}
 }
 add_action( 'admin_init', 'pmpro_affiliates_checkDB', 20 );
@@ -359,12 +369,21 @@ function pmpro_affiliates_add_pages() {
 	} else {
 		add_submenu_page( 'pmpro-membershiplevels', __( 'Affiliates', 'pmpro-affiliates' ), __( 'Affiliates', 'pmpro-affiliates' ), 'manage_options', 'pmpro-affiliates', 'pmpro_affiliates_adminpage' );
 	}
+	// Register the payouts page without a parent (hidden from menu but directly accessible).
+	// Using '' instead of null avoids PHP 8 deprecation warnings from trim(null)/plugin_basename(null)
+	// while producing identical hookname behavior ($submenu[''] keeps the page discoverable at lookup time).
+	add_submenu_page( '', __( 'Affiliate Payouts', 'pmpro-affiliates' ), __( 'Affiliate Payouts', 'pmpro-affiliates' ), 'manage_options', 'pmpro-affiliates-payouts', 'pmpro_affiliates_payouts_adminpage' );
 }
 add_action( 'admin_menu', 'pmpro_affiliates_add_pages', 20 );
 
 // affiliates page (add new)
 function pmpro_affiliates_adminpage() {
 	 require_once dirname( __FILE__ ) . '/adminpages/affiliates.php';
+}
+
+// affiliate payouts page
+function pmpro_affiliates_payouts_adminpage() {
+	require_once dirname( __FILE__ ) . '/adminpages/payouts.php';
 }
 
 // add page to admin bar
@@ -569,6 +588,13 @@ function pmpro_wp_ajax_affiliates_report_csv() {
 }
 add_action( 'wp_ajax_affiliates_report_csv', 'pmpro_wp_ajax_affiliates_report_csv' );
 
+// service for payout csv export
+function pmpro_wp_ajax_affiliates_payout_csv() {
+	require_once dirname( __FILE__ ) . '/adminpages/payout-csv.php';
+	exit;
+}
+add_action( 'wp_ajax_pmpro_affiliates_payout_csv', 'pmpro_wp_ajax_affiliates_payout_csv' );
+
 // check if a user is an affiliate
 function pmpro_affiliates_getAffiliatesForUser( $user_id = null ) {
 	if ( empty( $user_id ) ) {
@@ -672,7 +698,8 @@ add_action( 'wp_enqueue_scripts', 'pmpro_affiliates_enqueue_scripts' );
  */
 function pmpro_affiliates_register_scripts_styles() {
 	// Only load script on PMPro affiliates pages.
-	if ( ! isset( $_REQUEST['page'] ) || $_REQUEST['page'] != 'pmpro-affiliates' ) { // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Read-only admin page check for enqueueing assets.
+	$affiliate_pages = array( 'pmpro-affiliates', 'pmpro-affiliates-payouts' );
+	if ( ! isset( $_REQUEST['page'] ) || ! in_array( $_REQUEST['page'], $affiliate_pages, true ) ) { // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Read-only admin page check for enqueueing assets.
 		return;
 	}
 
@@ -680,10 +707,18 @@ function pmpro_affiliates_register_scripts_styles() {
 	wp_register_script( 'pmpro_affiliates_admin', plugins_url( 'includes/js/admin.js', __FILE__ ), array( 'jquery', 'jquery-ui-autocomplete' ), PMPRO_AFFILIATES_VERSION, true );
 
 	$localize_data = array(
-		'ajaxurl'     => admin_url( 'admin-ajax.php' ),
-		'paid_status' => esc_html__( 'Paid', 'pmpro-affiliates' ),
-		'search_nonce' => wp_create_nonce( 'pmpro_affiliates_search_nonce' ),
-		'reset_status' => esc_html__( 'Payment status reset.', 'pmpro-affiliates' ),
+		'ajaxurl'              => admin_url( 'admin-ajax.php' ),
+		'paid_status'          => esc_html__( 'Paid', 'pmpro-affiliates' ),
+		'search_nonce'         => wp_create_nonce( 'pmpro_affiliates_search_nonce' ),
+		'reset_status'         => esc_html__( 'Payment status reset.', 'pmpro-affiliates' ),
+		'payout_method_labels' => array(
+			'paypal' => esc_html__( 'PayPal Email', 'pmpro-affiliates' ),
+			'venmo'  => esc_html__( 'Venmo Handle', 'pmpro-affiliates' ),
+			'check'  => esc_html__( 'Payee Name', 'pmpro-affiliates' ),
+			'wire'   => esc_html__( 'Bank Account / Routing Info', 'pmpro-affiliates' ),
+			'other'  => esc_html__( 'Payout Account', 'pmpro-affiliates' ),
+		),
+		'payout_account_label' => esc_html__( 'Payout Account', 'pmpro-affiliates' ),
 	);
 
 	// Localize scripts with data from PHP.
